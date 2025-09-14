@@ -1,0 +1,39 @@
+<!--game.wxml-->
+<view class="game-container">
+
+  <!-- 游戏界面 -->
+  <view class="game-screen" wx:if="{{gameState === 'playing' || gameState === 'start'}}">
+    <!-- 分数显示 -->
+    <view class="score-display">分数：{{currentScore}}</view>
+    
+    <!-- 游戏画布 -->
+    <canvas 
+      canvas-id="gameCanvas" 
+      class="game-canvas"
+      bindtouchstart="onTouchStart"
+      bindtouchend="onTouchEnd"
+      bindtouchmove="onTouchMove"
+    ></canvas>
+    
+    <!-- 暂停按钮 -->
+    <view class="pause-button" bindtap="pauseGame">暂停</view>
+  </view>
+
+  <!-- 暂停界面 -->
+  <view class="pause-screen" wx:if="{{gameState === 'paused'}}">
+    <view class="pause-title">游戏暂停</view>
+    <view class="pause-score">当前分数：{{currentScore}}</view>
+    <view class="resume-button" bindtap="resumeGame">继续游戏</view>
+    <view class="restart-button" bindtap="restartGame">重新开始</view>
+    <view class="back-to-home-button" bindtap="backToHome">返回首页</view>
+  </view>
+
+  <!-- 结束界面 -->
+  <view class="end-screen" wx:if="{{gameState === 'ended'}}">
+    <view class="end-title">游戏结束</view>
+    <view class="final-score">最终分数：{{currentScore}}</view>
+    <view class="high-score-end" wx:if="{{isNewRecord}}">🎉 新纪录！</view>
+    <view class="restart-button" bindtap="restartGame">重新开始</view>
+    <view class="back-button" bindtap="backToStart">返回首页</view>
+  </view>
+</view>

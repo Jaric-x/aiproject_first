@@ -1,7 +1,22 @@
 <!--index.wxml-->
-<navigation-bar title="Weixin" back="{{false}}" color="black" background="#FFF"></navigation-bar>
-<scroll-view class="scrollarea" scroll-y type="list">
-  <view class="container">
-    Weixin
+<navigation-bar title="跳一跳" back="{{false}}" color="white" background="#667eea"></navigation-bar>
+<view class="container">
+  <view class="welcome-section">
+    <view class="game-icon">🎮</view>
+    <view class="welcome-title">欢迎来到跳一跳</view>
+    <view class="welcome-desc">一个简单有趣的跳跃游戏</view>
+    <view class="high-score">最高分：{{highScore}}</view>
   </view>
-</scroll-view>
+  
+  <view class="menu-section">
+    <view class="menu-item" bindtap="startGame">
+      <view class="menu-icon">▶️</view>
+      <view class="menu-text">开始游戏</view>
+    </view>
+    
+    <view class="menu-item" bindtap="viewRules">
+      <view class="menu-icon">📋</view>
+      <view class="menu-text">游戏规则</view>
+    </view>
+  </view>
+</view>

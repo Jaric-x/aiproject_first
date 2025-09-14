@@ -1,10 +1,12 @@
 {
   "pages": [
-    "pages/index/index"
+    "pages/index/index",
+    "pages/game/game"
   ],
   "window": {
-    "navigationBarTextStyle": "black",
-    "navigationStyle": "custom"
+    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "#000000",
+    "backgroundColor": "#000000"
   },
   "style": "v2",
   "renderer": "skyline",
