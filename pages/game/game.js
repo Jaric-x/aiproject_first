@@ -11,6 +11,19 @@ Page({
     gameWidth: 0,
     gameHeight: 0,
     
+    // 相机/视野
+    cameraOffsetX: 0,
+    cameraLeftMargin: 80,
+    cameraTargetX: 0,
+    cameraMoveSpeed: 8, // 每帧推进像素（约60fps）
+
+    // 平台参数
+    minPlatformSpacing: 20, // 平台最小间距（可调整）
+    maxPlatformSpacing: 160, // 平台最大间距（可调整）
+    platformWidth: 80,
+    platformHeight: 20,
+    platformGroundOffset: 300, // 平台距离底部的高度
+    
     // 游戏状态
     isJumping: false,
     jumpPower: 0,
@@ -89,6 +102,9 @@ Page({
   initGame() {
     this.generateInitialPlatforms();
     this.resetPlayer();
+    // 初始化相机，使玩家出现在左侧预留位置
+    const initialCamera = Math.max(0, this.data.player.x - this.data.cameraLeftMargin);
+    this.setData({ cameraOffsetX: initialCamera, cameraTargetX: initialCamera });
     console.log('Game initialized:', this.data.player, this.data.platforms);
     this.draw();
   },
@@ -96,9 +112,11 @@ Page({
   // 生成初始平台
   generateInitialPlatforms() {
     const platforms = [];
-    const platformWidth = 80;
-    const platformHeight = 20;
-    const groundY = this.data.gameHeight - 100;
+    const platformWidth = this.data.platformWidth;
+    const platformHeight = this.data.platformHeight;
+    const groundY = this.data.gameHeight - this.data.platformGroundOffset;
+    const minSpacing = this.data.minPlatformSpacing;
+    const maxSpacing = this.data.maxPlatformSpacing;
     
     // 起始平台
     platforms.push({
@@ -109,12 +127,12 @@ Page({
       type: 'start'
     });
     
-    // 生成后续平台
-    let currentX = 150;
-    for (let i = 0; i < 5; i++) {
-      const spacing = 60 + Math.random() * 80; // 随机间距
+    // 生成初始可视范围内的平台
+    let currentX = 50 + platformWidth;
+    const targetRight = this.data.cameraOffsetX + this.data.gameWidth + 300; // 右侧缓冲
+    while (currentX < targetRight) {
+      const spacing = minSpacing + Math.random() * (maxSpacing - minSpacing);
       currentX += spacing;
-      
       platforms.push({
         x: currentX,
         y: groundY,
@@ -122,6 +140,7 @@ Page({
         height: platformHeight,
         type: 'normal'
       });
+      currentX += platformWidth;
     }
     
     this.setData({ platforms });
@@ -206,8 +225,15 @@ Page({
     player.x += player.velocityX;
     player.y += player.velocityY;
     
-    // 检查碰撞
+    // 检查碰撞（可能会在此帧落地）
     this.checkCollisions();
+
+    // 相机平滑推进到目标
+    if (this.data.cameraOffsetX < this.data.cameraTargetX) {
+      const diff = this.data.cameraTargetX - this.data.cameraOffsetX;
+      const step = Math.min(this.data.cameraMoveSpeed, diff);
+      this.setData({ cameraOffsetX: this.data.cameraOffsetX + step });
+    }
     
     // 检查游戏结束
     this.checkGameEnd();
@@ -233,6 +259,12 @@ Page({
           player.velocityY = 0;
           player.velocityX = 0; // 停止水平滑行
           player.onGround = true;
+
+          // 落地后设置相机目标：保持玩家位于左侧边距
+          const desiredCamera = player.x - this.data.cameraLeftMargin;
+          if (desiredCamera > this.data.cameraTargetX) {
+            this.setData({ cameraTargetX: desiredCamera });
+          }
           
           // 得分
           if (platform.type === 'normal') {
@@ -281,26 +313,43 @@ Page({
 
   // 更新平台
   updatePlatforms() {
-    const platforms = this.data.platforms;
-    const player = this.data.player;
+    const platformWidth = this.data.platformWidth;
+    const platformHeight = this.data.platformHeight;
+    const groundY = this.data.gameHeight - this.data.platformGroundOffset;
+    const minSpacing = this.data.minPlatformSpacing;
+    const maxSpacing = this.data.maxPlatformSpacing;
+
+    const leftWorldEdge = this.data.cameraOffsetX; // 视口左边界（世界坐标）
+    const rightWorldEdge = this.data.cameraOffsetX + this.data.gameWidth + 300; // 视口右边界 + 缓冲
     
-    // 移除屏幕左侧的平台
-    const filteredPlatforms = platforms.filter(platform => 
-      platform.x + platform.width > player.x - 200
+    // 移除屏幕左侧很远的平台
+    let filteredPlatforms = this.data.platforms.filter(platform => 
+      platform.x + platformWidth > leftWorldEdge - 300
     );
     
-    // 添加新平台
-    if (filteredPlatforms.length < 3) {
-      const lastPlatform = filteredPlatforms[filteredPlatforms.length - 1];
-      const spacing = 60 + Math.random() * 80;
+    // 确保右侧持续有平台：一直生成到可视范围右侧缓冲之外
+    if (filteredPlatforms.length === 0) {
+      // 极端情况，重建一个起始平台
+      filteredPlatforms.push({
+        x: leftWorldEdge,
+        y: groundY,
+        width: platformWidth,
+        height: platformHeight,
+        type: 'normal'
+      });
+    }
+    let last = filteredPlatforms[filteredPlatforms.length - 1];
+    while (last.x + last.width < rightWorldEdge) {
+      const spacing = minSpacing + Math.random() * (maxSpacing - minSpacing);
       const newPlatform = {
-        x: lastPlatform.x + lastPlatform.width + spacing,
-        y: this.data.gameHeight - 100,
-        width: 80,
-        height: 20,
+        x: last.x + last.width + spacing,
+        y: groundY,
+        width: platformWidth,
+        height: platformHeight,
         type: 'normal'
       };
       filteredPlatforms.push(newPlatform);
+      last = newPlatform;
     }
     
     this.setData({ platforms: filteredPlatforms });
@@ -323,6 +372,7 @@ Page({
     const ctx = this.data.ctx;
     const player = this.data.player;
     const platforms = this.data.platforms;
+    const cameraX = this.data.cameraOffsetX;
     
     console.log('Drawing:', player, platforms.length);
     
@@ -340,29 +390,32 @@ Page({
     ctx.setFillStyle(gradient);
     ctx.fillRect(0, 0, this.data.gameWidth, this.data.gameHeight);
     
-    // 绘制平台
+    // 绘制平台（使用相机偏移）
     ctx.setFillStyle('#8B4513');
     platforms.forEach(platform => {
-      ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
-      
+      const sx = platform.x - cameraX;
+      const sy = platform.y;
+      ctx.fillRect(sx, sy, platform.width, platform.height);
       // 平台边框
       ctx.setStrokeStyle('#654321');
       ctx.setLineWidth(2);
-      ctx.strokeRect(platform.x, platform.y, platform.width, platform.height);
+      ctx.strokeRect(sx, sy, platform.width, platform.height);
     });
     
-    // 绘制小人
+    // 绘制小人（使用相机偏移）
+    const px = player.x - cameraX;
+    const py = player.y;
     ctx.setFillStyle('#FF6B6B');
-    ctx.fillRect(player.x, player.y, player.width, player.height);
+    ctx.fillRect(px, py, player.width, player.height);
     
     // 小人眼睛
     ctx.setFillStyle('#FFFFFF');
-    ctx.fillRect(player.x + 3, player.y + 5, 4, 4);
-    ctx.fillRect(player.x + 13, player.y + 5, 4, 4);
+    ctx.fillRect(px + 3, py + 5, 4, 4);
+    ctx.fillRect(px + 13, py + 5, 4, 4);
     
     // 小人嘴巴
     ctx.setFillStyle('#000000');
-    ctx.fillRect(player.x + 8, player.y + 15, 4, 2);
+    ctx.fillRect(px + 8, py + 15, 4, 2);
     
     // 提交绘制
     ctx.draw();
