@@ -23,6 +23,20 @@ Page({
     platformWidth: 80,
     platformHeight: 20,
     platformGroundOffset: 300, // 平台距离底部的高度
+
+    // 跳跃参数（线性映射）
+    pressMsForFullPower: 800, // ms，按压达到满功率的时间
+    jumpHorizontalSpeedPerUnit: 4, // 横向速度系数（单位功率对应的速度 px/帧）
+    jumpVerticalVelocity: -9, // 固定竖直初速度（px/帧），决定滞空时间
+
+    // 按压进度条状态
+    isPressing: false,
+    pressProgress: 0,     // 0.0 ~ 1.0
+    pressDirection: 1,    // 1 递增，-1 递减
+    progressPercent: 0,   // 0~100，便于样式绑定
+
+    // 计分辅助：最近一次落地的平台索引
+    lastLandedPlatformIndex: -1,
     
     // 游戏状态
     isJumping: false,
@@ -104,7 +118,8 @@ Page({
     this.resetPlayer();
     // 初始化相机，使玩家出现在左侧预留位置
     const initialCamera = Math.max(0, this.data.player.x - this.data.cameraLeftMargin);
-    this.setData({ cameraOffsetX: initialCamera, cameraTargetX: initialCamera });
+    // 起始平台索引为 0，作为落地基准（不计分）
+    this.setData({ cameraOffsetX: initialCamera, cameraTargetX: initialCamera, lastLandedPlatformIndex: 0 });
     console.log('Game initialized:', this.data.player, this.data.platforms);
     this.draw();
   },
@@ -213,8 +228,23 @@ Page({
   // 更新游戏状态
   update() {
     if (this.data.gameState !== 'playing') return;
+
+    const now = Date.now();
+    const deltaMs = Math.max(0, now - this.lastTime);
+    this.lastTime = now;
     
     const player = this.data.player;
+    
+    // 按压进度更新（仅在按压时进行 0→1→0 往复）
+    if (this.data.isPressing) {
+      const step = deltaMs / this.data.pressMsForFullPower; // 满功率用时对应 1.0 进度
+      let prog = this.data.pressProgress + this.data.pressDirection * step;
+      let dir = this.data.pressDirection;
+      if (prog >= 1) { prog = 1; dir = -1; }
+      if (prog <= 0) { prog = 0; dir = 1; }
+      const percent = Math.round(prog * 100);
+      this.setData({ pressProgress: prog, pressDirection: dir, progressPercent: percent });
+    }
     
     // 应用重力
     if (!player.onGround) {
@@ -231,8 +261,8 @@ Page({
     // 相机平滑推进到目标
     if (this.data.cameraOffsetX < this.data.cameraTargetX) {
       const diff = this.data.cameraTargetX - this.data.cameraOffsetX;
-      const step = Math.min(this.data.cameraMoveSpeed, diff);
-      this.setData({ cameraOffsetX: this.data.cameraOffsetX + step });
+      const stepMove = Math.min(this.data.cameraMoveSpeed, diff);
+      this.setData({ cameraOffsetX: this.data.cameraOffsetX + stepMove });
     }
     
     // 检查游戏结束
@@ -251,7 +281,8 @@ Page({
     
     player.onGround = false;
     
-    for (let platform of platforms) {
+    for (let i = 0; i < platforms.length; i++) {
+      const platform = platforms[i];
       if (this.isColliding(player, platform)) {
         // 检查是否从上方落下
         if (player.velocityY > 0 && player.y < platform.y) {
@@ -266,12 +297,23 @@ Page({
             this.setData({ cameraTargetX: desiredCamera });
           }
           
-          // 得分
-          if (platform.type === 'normal') {
+          // 计分：根据跨越的平台数量累计
+          const prevIndex = this.data.lastLandedPlatformIndex;
+          if (prevIndex === -1) {
+            // 首次初始化，不计分，只设置索引
+            this.setData({ lastLandedPlatformIndex: i });
+          } else if (i > prevIndex) {
+            const gained = i - prevIndex; // 跨越的平台数
             this.setData({
-              currentScore: this.data.currentScore + 1
+              currentScore: this.data.currentScore + gained,
+              lastLandedPlatformIndex: i
             });
+          } else if (i !== prevIndex) {
+            // 落到左侧平台（一般不会发生），仅同步索引不加分
+            this.setData({ lastLandedPlatformIndex: i });
           }
+
+          break; // 已经落到某个平台，结束循环
         }
       }
     }
@@ -427,6 +469,9 @@ Page({
     if (this.data.player.onGround && !this.data.isJumping) {
       this.setData({
         isJumping: true,
+        isPressing: true,
+        pressDirection: 1,
+        // 不重置 pressProgress，允许从当前进度继续；如需每次从0开始可改为 0
         jumpStartTime: Date.now(),
         jumpPower: 0
       });
@@ -437,43 +482,29 @@ Page({
   onTouchEnd(e) {
     if (this.data.gameState !== 'playing') return;
     if (this.data.isJumping) {
-      const jumpDuration = Date.now() - this.data.jumpStartTime;
-      const power = Math.min(jumpDuration / 5, this.data.maxJumpPower);
-      
-      // 计算到下一个平台的距离
-      const nextPlatform = this.getNextPlatform();
-      const jumpPower = power / this.data.maxJumpPower;
-      
-      if (nextPlatform) {
-        const distanceX = nextPlatform.x - this.data.player.x;
-        const distanceY = nextPlatform.y - this.data.player.y;
-        
-        // 确保始终向右跳跃，使用绝对值
-        const velocityX = Math.abs(distanceX / 20) * jumpPower; // 水平速度，始终为正
-        const velocityY = this.data.jumpForce * jumpPower; // 垂直速度
-        
-        this.setData({
-          'player.velocityX': velocityX,
-          'player.velocityY': velocityY,
-          isJumping: false,
-          jumpPower: 0
-        });
-        
-        console.log('Jump to platform:', { distanceX, distanceY, velocityX, velocityY, jumpPower });
-      } else {
-        // 如果没有找到下一个平台，使用默认的向右跳跃
-        const velocityX = 3 * jumpPower; // 默认向右的水平速度
-        const velocityY = this.data.jumpForce * jumpPower;
-        
-        this.setData({
-          'player.velocityX': velocityX,
-          'player.velocityY': velocityY,
-          isJumping: false,
-          jumpPower: 0
-        });
-        
-        console.log('Default right jump:', { velocityX, velocityY, jumpPower });
-      }
+      // 使用进度条的当前进度作为功率（0~1）
+      const powerNorm = this.data.pressProgress;
+
+      // 固定竖直速度，线性水平速度（始终向右）
+      const vx = this.data.jumpHorizontalSpeedPerUnit * powerNorm;
+      const vy = this.data.jumpVerticalVelocity;
+
+      // 极短按压的最小水平速度
+      const minVX = 0.8;
+      const finalVX = powerNorm > 0 ? Math.max(minVX, vx) : 0;
+
+      this.setData({
+        'player.velocityX': finalVX,
+        'player.velocityY': vy,
+        isJumping: false,
+        isPressing: false,
+        // 可选：释放后将进度回到0，更直观
+        pressProgress: 0,
+        progressPercent: 0,
+        jumpPower: 0
+      });
+
+      console.log('Linear jump with progress:', { powerNorm, finalVX, vy });
     }
   },
 
